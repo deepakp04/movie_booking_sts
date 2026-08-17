@@ -1,0 +1,596 @@
+<!-- Add this Modal for Seat Count -->
+<div id="seat-count-modal" class="modal hidden">
+    <div class="modal-content">
+        <h3>How many seats?</h3>
+        <div class="count-control">
+            <button id="btn-decrease">-</button>
+            <span id="seat-count-display">1</span>
+            <button id="btn-increase">+</button>
+        </div>
+        <p class="subtitle">Max 10 seats per booking</p>
+        <div class="modal-actions">
+            <button id="btn-cancel-count" class="btn-secondary">Cancel</button>
+            <button id="btn-confirm-count" class="btn-primary">Continue</button>
+        </div>
+    </div>
+</div>
+
+<!-- Ensure your Payment View has the timer -->
+<div id="view-payment" class="view hidden">
+    <h2>Payment</h2>
+    <div class="booking-summary">
+        <p>Movie: <span id="payment-movie"></span></p>
+        <p>Theatre: <span id="payment-theatre"></span></p>
+        <p>Seats: <span id="payment-seats"></span></p>
+        <h3>Total: <span id="payment-amount">₹0</span></h3>
+        
+        <div class="timer-box">
+            <p>Time Remaining:</p>
+            <div id="countdown-timer" class="countdown">10:00</div>
+            <small>Seats will be released after this time.</small>
+        </div>
+
+        <div class="payment-actions">
+            <button id="btn-pay-now" class="btn-primary">Pay Now</button>
+            <button id="btn-cancel-booking" class="btn-danger">Cancel Booking</button>
+        </div>
+    </div>
+</div>
+
+
+/**
+ * MOVIE BOOKING SYSTEM - CATALOG JS
+ * Handles customer journey: City -> Movie -> Show -> Seats -> Hold
+ */
+
+// --- State Management ---
+let currentState = {
+    cityId: null,
+    movieId: null,
+    showId: null,
+    selectedDate: null,
+    holdBookingId: null, // The ID of the active booking (PENDING_PAYMENT)
+    holdExpiry: null     // Timestamp when hold expires
+};
+
+// DOM Elements Cache
+const views = {
+    city: document.getElementById('view-city'),
+    movie: document.getElementById('view-movie'),
+    show: document.getElementById('view-show'),
+    seatCount: document.getElementById('view-seat-count'),
+    seatMap: document.getElementById('view-seat-map'),
+    payment: document.getElementById('view-payment')
+};
+
+// --- Initialization ---
+document.addEventListener('DOMContentLoaded', () => {
+    loadCities();
+    restoreSessionIfAny(); // Check for active hold on refresh
+});
+
+// --- Navigation & View Switching ---
+function switchView(viewName) {
+    Object.values(views).forEach(el => el.classList.add('hidden'));
+    if (views[viewName]) views[viewName].classList.remove('hidden');
+}
+
+// --- 1. City Selection ---
+async function loadCities() {
+    try {
+        const res = await fetch('/api/catalog/cities');
+        const data = await res.json();
+        if (data.success) {
+            renderCities(data.data);
+        }
+    } catch (e) { console.error("Failed to load cities", e); }
+}
+
+function renderCities(cities) {
+    const grid = document.getElementById('city-grid');
+    grid.innerHTML = '';
+    cities.forEach(city => {
+        const card = document.createElement('div');
+        card.className = 'city-card';
+        card.innerHTML = `<h3>${city.name}</h3>`;
+        card.onclick = () => selectCity(city.id, city.name);
+        grid.appendChild(card);
+    });
+}
+
+function selectCity(cityId, cityName) {
+    currentState.cityId = cityId;
+    document.getElementById('selected-city-name').textContent = cityName;
+    loadMovies(cityId);
+    switchView('movie');
+}
+
+// --- 2. Movie Selection ---
+async function loadMovies(cityId) {
+    try {
+        const res = await fetch(`/api/catalog/movies?cityId=${cityId}`);
+        const data = await res.json();
+        if (data.success) renderMovies(data.data);
+    } catch (e) { console.error("Failed to load movies", e); }
+}
+
+function renderMovies(movies) {
+    const grid = document.getElementById('movie-grid');
+    grid.innerHTML = '';
+    if (!movies || movies.length === 0) {
+        grid.innerHTML = '<p>No movies available in this city.</p>';
+        return;
+    }
+    movies.forEach(movie => {
+        const card = document.createElement('div');
+        card.className = 'movie-card';
+        // Fallback for image
+        const imgUrl = movie.posterUrl || 'https://via.placeholder.com/200x300?text=No+Image';
+        card.innerHTML = `
+            <img src="${imgUrl}" alt="${movie.title}">
+            <div class="movie-info">
+                <h3>${movie.title}</h3>
+                <p>${movie.language} | ${movie.format}</p>
+            </div>
+        `;
+        card.onclick = () => selectMovie(movie.id, movie.title);
+        grid.appendChild(card);
+    });
+}
+
+function selectMovie(movieId, movieTitle) {
+    currentState.movieId = movieId;
+    document.getElementById('selected-movie-title').textContent = movieTitle;
+    loadDates();
+    switchView('show');
+}
+
+// --- 3. Date & Show Selection ---
+function loadDates() {
+    // Generate next 7 days
+    const container = document.getElementById('date-strip');
+    container.innerHTML = '';
+    const today = new Date();
+    
+    for (let i = 0; i < 7; i++) {
+        const date = new Date(today);
+        date.setDate(today.getDate() + i);
+        
+        const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD
+        const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+        const dayNum = date.getDate();
+        const month = date.toLocaleDateString('en-US', { month: 'short' });
+
+        const btn = document.createElement('div');
+        btn.className = `date-chip ${i === 0 ? 'active' : ''}`;
+        btn.innerHTML = `<span>${dayName}</span><span>${dayNum} ${month}</span>`;
+        btn.onclick = () => {
+            document.querySelectorAll('.date-chip').forEach(c => c.classList.remove('active'));
+            btn.classList.add('active');
+            currentState.selectedDate = dateStr;
+            loadShows(currentState.movieId, currentState.cityId, dateStr);
+        };
+        container.appendChild(btn);
+    }
+    
+    // Load shows for today by default
+    currentState.selectedDate = today.toISOString().split('T')[0];
+    loadShows(currentState.movieId, currentState.cityId, currentState.selectedDate);
+}
+
+async function loadShows(movieId, cityId, date) {
+    const list = document.getElementById('show-list');
+    list.innerHTML = '<p>Loading shows...</p>';
+    
+    try {
+        const res = await fetch(`/api/catalog/movies/${movieId}/shows?cityId=${cityId}&date=${date}`);
+        const data = await res.json();
+        if (data.success && data.data && data.data.length > 0) {
+            renderShows(data.data);
+        } else {
+            list.innerHTML = '<p>No shows scheduled for this date.</p>';
+        }
+    } catch (e) { 
+        console.error("Failed to load shows", e); 
+        list.innerHTML = '<p>Error loading shows.</p>';
+    }
+}
+
+function renderShows(shows) {
+    const list = document.getElementById('show-list');
+    list.innerHTML = '';
+    shows.forEach(show => {
+        const item = document.createElement('div');
+        item.className = 'show-item';
+        
+        // Format time
+        const time = new Date(show.startTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        const theatreName = show.screen.theatre.name;
+        
+        // Check availability color based on capacity (mock logic if totalSeats missing)
+        // Ideally use show.availableSeats vs show.totalSeats
+        let statusColor = '#28a745'; // Green
+        if (show.seatsAvailable === 0) statusColor = '#dc3545'; // Red
+        
+        item.innerHTML = `
+            <div class="show-time">${time}</div>
+            <div class="show-theatre">${theatreName}</div>
+            <div class="show-price">From ₹${show.minPrice || 99}</div>
+        `;
+        item.style.borderLeft = `5px solid ${statusColor}`;
+        
+        if (show.seatsAvailable > 0) {
+            item.onclick = () => selectShow(show.id);
+        } else {
+            item.style.opacity = '0.6';
+            item.style.cursor = 'not-allowed';
+            item.title = "Housefull";
+        }
+        
+        list.appendChild(item);
+    });
+}
+
+function selectShow(showId) {
+    currentState.showId = showId;
+    
+    // If we have an active hold for THIS show, go straight to seat map
+    if (currentState.holdBookingId) {
+        loadSeatMap(showId, true); // true = read-only mode for held seats
+    } else {
+        openSeatCountModal();
+    }
+}
+
+// --- 4. Seat Count Modal ---
+function openSeatCountModal() {
+    const modal = document.getElementById('seat-count-modal');
+    modal.classList.remove('hidden');
+    
+    // Reset count
+    let count = 1;
+    const display = document.getElementById('seat-count-display');
+    display.textContent = count;
+    
+    document.getElementById('btn-decrease').onclick = () => {
+        if (count > 1) { count--; display.textContent = count; }
+    };
+    document.getElementById('btn-increase').onclick = () => {
+        if (count < 10) { count++; display.textContent = count; }
+    };
+    
+    document.getElementById('btn-confirm-count').onclick = () => {
+        modal.classList.add('hidden');
+        loadSeatMap(currentState.showId, false);
+    };
+    
+    document.getElementById('btn-cancel-count').onclick = () => {
+        modal.classList.add('hidden');
+    };
+}
+
+// --- 5. Seat Map Loading & Rendering ---
+async function loadSeatMap(showId, isReadOnly) {
+    switchView('seatMap');
+    const container = document.getElementById('seat-map-container');
+    container.innerHTML = '<p>Loading seat map...</p>';
+    
+    try {
+        const token = localStorage.getItem('accessToken');
+        const headers = { 'Authorization': `Bearer ${token}` };
+        
+        const res = await fetch(`/api/booking/shows/${showId}/seats`, { headers });
+        const data = await res.json();
+        
+        if (!res.ok) {
+            if (res.status === 401) {
+                alert("Please login to book tickets.");
+                window.location.href = '/auth.html';
+                return;
+            }
+            throw new Error(data.message || "Failed to load seats");
+        }
+        
+        renderSeatGrid(data.data, isReadOnly);
+        
+    } catch (e) {
+        console.error(e);
+        container.innerHTML = `<p class="error-msg">${e.message}</p>`;
+    }
+}
+
+function renderSeatGrid(seatData, isReadOnly) {
+    const container = document.getElementById('seat-map-container');
+    container.innerHTML = '';
+    
+    if (!seatData || !seatData.rows || seatData.rows.length === 0) {
+        container.innerHTML = '<p>Seat map not available.</p>';
+        return;
+    }
+
+    const screen = document.createElement('div');
+    screen.className = 'screen';
+    screen.textContent = 'SCREEN THIS WAY';
+    container.appendChild(screen);
+
+    const grid = document.createElement('div');
+    grid.className = 'seat-grid';
+    
+    // Legend
+    const legend = document.createElement('div');
+    legend.className = 'legend';
+    legend.innerHTML = `
+        <span><div class="seat-sample available"></div> Available</span>
+        <span><div class="seat-sample held"></div> Held</span>
+        <span><div class="seat-sample booked"></div> Booked</span>
+        <span><div class="seat-sample selected"></div> Selected</span>
+    `;
+    container.appendChild(legend);
+
+    seatData.rows.forEach((row, rIndex) => {
+        const rowDiv = document.createElement('div');
+        rowDiv.className = 'seat-row';
+        
+        // Row Label
+        const label = document.createElement('div');
+        label.className = 'row-label';
+        label.textContent = row.rowLabel;
+        rowDiv.appendChild(label);
+
+        row.seats.forEach(seat => {
+            const seatDiv = document.createElement('div');
+            seatDiv.className = `seat ${seat.status.toLowerCase()}`;
+            seatDiv.textContent = seat.number;
+            seatDiv.dataset.id = seat.id;
+            seatDiv.dataset.status = seat.status;
+            seatDiv.dataset.price = seat.price;
+            seatDiv.dataset.tier = seat.tierName;
+
+            if (seat.status === 'AVAILABLE' && !isReadOnly) {
+                seatDiv.onclick = () => toggleSeatSelection(seatDiv);
+            } else {
+                seatDiv.classList.add('disabled');
+            }
+
+            rowDiv.appendChild(seatDiv);
+        });
+        
+        grid.appendChild(rowDiv);
+    });
+    
+    container.appendChild(grid);
+
+    // Action Bar
+    const actions = document.createElement('div');
+    actions.className = 'booking-actions';
+    actions.innerHTML = `
+        <div class="total-price">Total: ₹<span id="total-amount">0</span></div>
+        <button id="btn-proceed-payment" class="btn-primary" disabled>Continue</button>
+    `;
+    container.appendChild(actions);
+
+    document.getElementById('btn-proceed-payment').onclick = () => {
+        if (isReadOnly) {
+            // Resume flow
+            proceedToPaymentFromHold();
+        } else {
+            // New booking flow
+            initiateHold();
+        }
+    };
+}
+
+// --- 6. Seat Selection Logic (Client Side Only) ---
+let selectedSeats = []; // Array of { id, price, number }
+
+function toggleSeatSelection(seatEl) {
+    const id = seatEl.dataset.id;
+    const price = parseFloat(seatEl.dataset.price);
+    const number = seatEl.textContent;
+    
+    if (seatEl.classList.contains('selected')) {
+        // Deselect
+        seatEl.classList.remove('selected');
+        selectedSeats = selectedSeats.filter(s => s.id !== id);
+    } else {
+        // Select
+        if (selectedSeats.length >= 10) {
+            alert("Maximum 10 seats allowed per booking.");
+            return;
+        }
+        seatEl.classList.add('selected');
+        selectedSeats.push({ id, price, number });
+    }
+    
+    updateTotal();
+}
+
+function updateTotal() {
+    const total = selectedSeats.reduce((sum, s) => sum + s.price, 0);
+    document.getElementById('total-amount').textContent = total;
+    const btn = document.getElementById('btn-proceed-payment');
+    btn.disabled = selectedSeats.length === 0;
+    btn.textContent = selectedSeats.length > 0 ? `Proceed (${selectedSeats.length})` : 'Continue';
+}
+
+// --- 7. HOLD API CALL (The Critical Fix) ---
+async function initiateHold() {
+    if (selectedSeats.length === 0) return;
+
+    const btn = document.getElementById('btn-proceed-payment');
+    const originalText = btn.textContent;
+    btn.textContent = "Processing...";
+    btn.disabled = true;
+
+    try {
+        const token = localStorage.getItem('accessToken');
+        const payload = {
+            showId: currentState.showId,
+            seatIds: selectedSeats.map(s => s.id)
+        };
+
+        const res = await fetch('/api/booking/hold', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+            // SUCCESS! Save session
+            const booking = data.data;
+            saveHoldSession(booking);
+            
+            // Update UI to reflect held state immediately
+            markSeatsAsHeldInUI();
+            
+            // Proceed to payment view
+            proceedToPaymentFromHold();
+        } else {
+            alert(data.message || "Failed to hold seats. They might be taken by someone else.");
+            // Reload map to get fresh state
+            loadSeatMap(currentState.showId, false);
+            selectedSeats = [];
+            updateTotal();
+        }
+    } catch (e) {
+        console.error("Hold error", e);
+        alert("Network error while holding seats.");
+    } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
+    }
+}
+
+function markSeatsAsHeldInUI() {
+    // Visually turn selected seats to HELD (orange)
+    selectedSeats.forEach(s => {
+        const el = document.querySelector(`.seat[data-id="${s.id}"]`);
+        if (el) {
+            el.classList.remove('selected', 'available');
+            el.classList.add('held');
+            el.classList.add('disabled'); // Prevent further clicks
+        }
+    });
+}
+
+// --- 8. Session Persistence (LocalStorage) ---
+function saveHoldSession(booking) {
+    currentState.holdBookingId = booking.id;
+    // Calculate expiry: backend sets it, but we store the timestamp
+    // Assuming booking object has expiresAt or we calculate +10 mins
+    // For safety, let's rely on the backend response if it has it, else +10m
+    const expiryTime = new Date().getTime() + (10 * 60 * 1000); 
+    
+    const session = {
+        bookingId: booking.id,
+        showId: currentState.showId,
+        expiresAt: expiryTime
+    };
+    localStorage.setItem('activeBooking', JSON.stringify(session));
+}
+
+function restoreSessionIfAny() {
+    const raw = localStorage.getItem('activeBooking');
+    if (!raw) return;
+
+    try {
+        const session = JSON.parse(raw);
+        const now = new Date().getTime();
+
+        if (now > session.expiresAt) {
+            // Expired
+            clearHoldSession();
+            alert("Your previous seat hold has expired. Please select seats again.");
+            return;
+        }
+
+        // Valid Session
+        currentState.holdBookingId = session.bookingId;
+        currentState.showId = session.showId;
+        
+        // If we are on the page corresponding to this show, reload map in ReadOnly mode
+        // Note: In a real app, you'd check URL params or state to see if we should auto-navigate
+        console.log("Resuming active booking session:", session.bookingId);
+        
+        // Optional: Auto-navigate to seat map if user refreshes on catalog page
+        // For now, we just prepare the state. The user navigates to the show, 
+        // and selectShow() checks currentState.holdBookingId.
+        
+    } catch (e) {
+        console.error("Failed to restore session", e);
+        clearHoldSession();
+    }
+}
+
+function clearHoldSession() {
+    currentState.holdBookingId = null;
+    currentState.holdExpiry = null;
+    localStorage.removeItem('activeBooking');
+}
+
+// --- 9. Payment Flow (Mock) ---
+function proceedToPaymentFromHold() {
+    switchView('payment');
+    
+    // Fetch booking details to confirm total
+    // In a real flow, you'd use currentState.holdBookingId to fetch final details
+    
+    const total = selectedSeats.reduce((sum, s) => sum + s.price, 0);
+    document.getElementById('payment-amount').textContent = `₹${total}`;
+    
+    // Start Countdown
+    startCountdown();
+    
+    document.getElementById('btn-pay-now').onclick = () => {
+        alert("Payment integration pending. In production, Razorpay opens here.");
+        // Do NOT clear session yet. Wait for success callback from Razorpay.
+    };
+    
+    document.getElementById('btn-cancel-booking').onclick = () => {
+        cancelBooking();
+    };
+}
+
+function startCountdown() {
+    const timerEl = document.getElementById('countdown-timer');
+    const session = JSON.parse(localStorage.getItem('activeBooking'));
+    if (!session) return;
+
+    const interval = setInterval(() => {
+        const now = new Date().getTime();
+        const distance = session.expiresAt - now;
+
+        if (distance < 0) {
+            clearInterval(interval);
+            timerEl.textContent = "EXPIRED";
+            alert("Time expired! Seats released.");
+            cancelBooking(true); // Force cancel
+            return;
+        }
+
+        const minutes = Math.floor((distance % (1000 * 60 * 10)) / (1000 * 60));
+        const seconds = Math.floor((distance % (1000 * 60)) / 1000);
+        timerEl.textContent = `${minutes}m ${seconds}s`;
+    }, 1000);
+}
+
+async function cancelBooking(expired = false) {
+    if (!currentState.holdBookingId) return;
+    
+    try {
+        const token = localStorage.getItem('accessToken');
+        await fetch(`/api/booking/${currentState.holdBookingId}/cancel`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+    } catch (e) { console.error("Cancel failed", e); }
+    
+    clearHoldSession();
+    selectedSeats = [];
+    window.location.reload(); // Reset to start
+}
