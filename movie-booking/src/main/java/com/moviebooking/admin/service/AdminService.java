@@ -8,6 +8,7 @@ import com.moviebooking.catalog.repository.*;
 import com.moviebooking.catalog.service.ScreenManagementService;
 import com.moviebooking.catalog.service.SeatConfigService;
 import com.moviebooking.catalog.service.ShowPricingService;
+import com.moviebooking.booking.dto.BookingDTOs.BookingResponse;
 import com.moviebooking.common.constants.Role;
 import com.moviebooking.common.constants.UserStatus;
 import com.moviebooking.common.exception.BusinessException;
@@ -37,6 +38,7 @@ public class AdminService {
     private final ShowPricingService showPricing;
     private final ScreenSeatRepository screenSeatRepository;
     private final com.moviebooking.booking.repository.ShowSeatRepository showSeatRepository;
+    private final com.moviebooking.booking.service.BookingService bookingService;
 
     public AdminService(CityRepository cityRepository,
                         MovieRepository movieRepository,
@@ -49,7 +51,8 @@ public class AdminService {
                         SeatConfigService seatConfig,
                         ShowPricingService showPricing,
                         ScreenSeatRepository screenSeatRepository,
-                        com.moviebooking.booking.repository.ShowSeatRepository showSeatRepository) {
+                        com.moviebooking.booking.repository.ShowSeatRepository showSeatRepository,
+                        com.moviebooking.booking.service.BookingService bookingService) {
         this.cityRepository = cityRepository;
         this.movieRepository = movieRepository;
         this.theatreRepository = theatreRepository;
@@ -62,6 +65,7 @@ public class AdminService {
         this.showPricing = showPricing;
         this.screenSeatRepository = screenSeatRepository;
         this.showSeatRepository = showSeatRepository;
+        this.bookingService = bookingService;
     }
 
     // --- CITIES ---
@@ -602,5 +606,18 @@ public class AdminService {
                 t != null ? t.getId() : null,
                 t != null ? t.getName() : null,
                 t != null ? t.getColorHex() : null);
+    }
+
+    // ===== Booking logs =====
+    public List<BookingResponse> getAllBookings() {
+        return bookingService.getAllBookings();
+    }
+
+    public List<BookingResponse> getBookingsByTheatre(Long theatreId) {
+        return bookingService.getBookingsByTheatre(theatreId);
+    }
+
+    public List<BookingResponse> getBookingsByShow(Long showId) {
+        return bookingService.getBookingsByShow(showId);
     }
 }

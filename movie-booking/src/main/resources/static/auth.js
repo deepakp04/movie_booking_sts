@@ -1,5 +1,6 @@
 // Base API Context
-const API_BASE_URL = "http://localhost:8080/auth";
+const API_BASE_URL = "/auth";
+const BOOKING_API_BASE = "/api/booking";
 
 // Shared Active State
 const state = {
@@ -15,14 +16,21 @@ function switchView(viewId) {
         "registerView",
         "otpView",
         "forgotPasswordView",
-        "accountSettingsView"
+        "accountSettingsView",
+        "myBookingsView"
     ];
     views.forEach(id => {
         const el = document.getElementById(id);
         if (el) el.classList.add("hidden");
     });
     const target = document.getElementById(viewId);
-    if (target) target.classList.remove("hidden");
+    if (target) {
+        target.classList.remove("hidden");
+        // Load bookings when switching to myBookingsView
+        if (viewId === 'myBookingsView') {
+            loadMyBookings();
+        }
+    }
 }
 
 // --- Validation Error Helpers ---
@@ -425,3 +433,152 @@ window.addEventListener("DOMContentLoaded", () => {
         switchView("loginView");
     }
 });
+
+// --- My Bookings Feature ---
+async function loadMyBookings() {
+    const container = document.getElementById('bookingsListContainer');
+    if (!container) return;
+
+    container.innerHTML = '<p style="text-align: center; color: var(--text-muted); padding: 40px 0;">Loading your bookings...</p>';
+
+    try {
+        const accessToken = localStorage.getItem('accessToken');
+        if (!accessToken) {
+            container.innerHTML = '<p style="text-align: center; color: #ef4444;">Please log in to view your bookings.</p>';
+            return;
+        }
+
+        const response = await fetch(`${BOOKING_API_BASE}/my-bookings`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${accessToken}`
+            }
+        });
+
+        const result = await response.json();
+
+        if (!result.success || !result.data || result.data.length === 0) {
+            container.innerHTML = '<p style="text-align: center; color: var(--text-muted); padding: 40px 0;">You have no bookings yet. Book your first movie ticket!</p>';
+            return;
+        }
+
+        const bookings = result.data;
+        let html = '';
+
+        bookings.forEach(booking => {
+            const statusClass = getStatusClass(booking.status);
+            const statusLabel = formatBookingStatus(booking.status);
+            const showDate = new Date(booking.showStartTime).toLocaleString('en-IN', { 
+                dateStyle: 'medium', 
+                timeStyle: 'short' 
+            });
+            
+            const seatCodes = booking.seatCodes.join(', ');
+            const totalAmount = booking.totalAmount;
+
+            html += `
+                <div class="booking-card" style="border: 1px solid #3f3f46; border-radius: 8px; padding: 16px; margin-bottom: 16px; background: #18181b;">
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
+                        <div>
+                            <h3 style="margin: 0 0 4px 0; color: #e4e4e7; font-size: 1.1rem;">${escapeHtml(booking.movieTitle)}</h3>
+                            <p style="margin: 0; color: #a1a1aa; font-size: 0.875rem;">${escapeHtml(booking.theatreName)} - ${escapeHtml(booking.screenName)}</p>
+                        </div>
+                        <span class="badge ${statusClass}" style="padding: 4px 12px; border-radius: 999px; font-size: 0.75rem; font-weight: 600;">${statusLabel}</span>
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 12px;">
+                        <div>
+                            <p style="margin: 0; color: #71717a; font-size: 0.75rem;">SHOW TIME</p>
+                            <p style="margin: 4px 0 0 0; color: #e4e4e7; font-size: 0.875rem;">${showDate}</p>
+                        </div>
+                        <div>
+                            <p style="margin: 0; color: #71717a; font-size: 0.75rem;">SEATS</p>
+                            <p style="margin: 4px 0 0 0; color: #e4e4e7; font-size: 0.875rem;">${seatCodes}</p>
+                        </div>
+                        <div>
+                            <p style="margin: 0; color: #71717a; font-size: 0.75rem;">TOTAL</p>
+                            <p style="margin: 4px 0 0 0; color: #e4e4e7; font-size: 0.875rem;">₹ ${totalAmount}</p>
+                        </div>
+                        <div>
+                            <p style="margin: 0; color: #71717a; font-size: 0.75rem;">TRANSACTION ID</p>
+                            <p style="margin: 4px 0 0 0; color: #e4e4e7; font-size: 0.75rem; word-break: break-all;">${escapeHtml(booking.transactionId)}</p>
+                        </div>
+                    </div>
+
+                    ${booking.holdExpiresAt && booking.status === 'PENDING_PAYMENT' ? `
+                        <div style="margin-top: 12px; padding: 8px 12px; background: rgba(239, 68, 68, 0.1); border-radius: 6px; border: 1px solid #ef4444;">
+                            <p style="margin: 0; color: #fca5a5; font-size: 0.75rem;">
+                                ⏰ Hold expires at: ${new Date(booking.holdExpiresAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                            </p>
+                        </div>
+                    ` : ''}
+
+                    ${booking.status === 'PENDING_PAYMENT' ? `
+                        <div style="margin-top: 12px; display: flex; gap: 8px;">
+                            <button class="btn btn-primary btn-sm" onclick="continuePayment(${booking.bookingId})">Continue Payment</button>
+                            <button class="btn btn-secondary btn-sm" onclick="cancelBooking(${booking.bookingId})">Cancel Booking</button>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        });
+
+        container.innerHTML = html;
+    } catch (err) {
+        console.error('[LOAD MY BOOKINGS]', err);
+        container.innerHTML = '<p style="text-align: center; color: #ef4444; padding: 40px 0;">Failed to load bookings. Please try again.</p>';
+    }
+}
+
+function getStatusClass(status) {
+    switch (status) {
+        case 'CONFIRMED': return 'badge-gold';
+        case 'PENDING_PAYMENT': return 'badge-orange';
+        case 'CANCELLED': return 'badge-red';
+        case 'EXPIRED': return 'badge-gray';
+        default: return 'badge-gray';
+    }
+}
+
+function formatBookingStatus(status) {
+    return status.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, l => l.toUpperCase());
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+async function continuePayment(bookingId) {
+    showAlert('Payment integration coming soon. Your seats are held for 10 minutes.', 'info');
+}
+
+async function cancelBooking(bookingId) {
+    if (!confirm('Are you sure you want to cancel this booking? The seats will be released.')) {
+        return;
+    }
+
+    try {
+        const accessToken = localStorage.getItem('accessToken');
+        const response = await fetch(`${BOOKING_API_BASE}/${bookingId}/cancel`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`
+            }
+        });
+
+        const result = await response.json();
+        if (result.success) {
+            showAlert('Booking cancelled successfully. Seats have been released.', 'success');
+            loadMyBookings();
+        } else {
+            showAlert(result.message || 'Failed to cancel booking.', 'error');
+        }
+    } catch (err) {
+        console.error('[CANCEL BOOKING]', err);
+        showAlert('Failed to cancel booking. Please try again.', 'error');
+    }
+}

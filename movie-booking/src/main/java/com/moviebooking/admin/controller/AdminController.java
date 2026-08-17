@@ -2,6 +2,7 @@ package com.moviebooking.admin.controller;
 
 import com.moviebooking.admin.dto.AdminDTOs.*;
 import com.moviebooking.admin.service.AdminService;
+import com.moviebooking.booking.dto.BookingDTOs.BookingResponse;
 import com.moviebooking.catalog.model.*;
 import com.moviebooking.common.response.ApiResponse;
 import org.springframework.web.bind.annotation.*;
@@ -202,5 +203,21 @@ public class AdminController {
     @GetMapping("/shows/{showId}/prices")
     public ApiResponse<List<TierPriceResponse>> getShowPrices(@PathVariable("showId") Long showId) {
         return new ApiResponse<>(true, "Prices retrieved", adminService.getShowPrices(showId));
+    }
+
+    // ===== Booking logs (Admin can view all bookings) =====
+    @GetMapping("/bookings")
+    public ApiResponse<List<BookingResponse>> getAllBookings() {
+        return new ApiResponse<>(true, "Bookings retrieved successfully", adminService.getAllBookings());
+    }
+
+    @GetMapping("/theatres/{theatreId}/bookings")
+    public ApiResponse<List<BookingResponse>> getTheatreBookings(@PathVariable("theatreId") Long theatreId) {
+        return new ApiResponse<>(true, "Theatre bookings retrieved successfully", adminService.getBookingsByTheatre(theatreId));
+    }
+
+    @GetMapping("/shows/{showId}/bookings")
+    public ApiResponse<List<BookingResponse>> getShowBookings(@PathVariable("showId") Long showId) {
+        return new ApiResponse<>(true, "Show bookings retrieved successfully", adminService.getBookingsByShow(showId));
     }
 }

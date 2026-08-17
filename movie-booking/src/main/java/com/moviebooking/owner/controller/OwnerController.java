@@ -1,6 +1,7 @@
 package com.moviebooking.owner.controller;
 
 import com.moviebooking.common.response.ApiResponse;
+import com.moviebooking.booking.dto.BookingDTOs.BookingResponse;
 import com.moviebooking.owner.dto.OwnerDTOs.*;
 import com.moviebooking.owner.service.OwnerService;
 import org.springframework.web.bind.annotation.*;
@@ -126,5 +127,16 @@ public class OwnerController {
     @GetMapping("/shows/{showId}/prices")
     public ApiResponse<List<TierPriceResponse>> getShowPrices(@PathVariable("showId") Long showId) {
         return new ApiResponse<>(true, "Prices retrieved", ownerService.getShowPrices(showId));
+    }
+
+    // ===== Booking logs (Owner can view bookings for their theatre) =====
+    @GetMapping("/bookings")
+    public ApiResponse<List<BookingResponse>> getMyTheatreBookings() {
+        return new ApiResponse<>(true, "Theatre bookings retrieved successfully", ownerService.getMyTheatreBookings());
+    }
+
+    @GetMapping("/shows/{showId}/bookings")
+    public ApiResponse<List<BookingResponse>> getMyShowBookings(@PathVariable("showId") Long showId) {
+        return new ApiResponse<>(true, "Show bookings retrieved successfully", ownerService.getShowBookings(showId));
     }
 }

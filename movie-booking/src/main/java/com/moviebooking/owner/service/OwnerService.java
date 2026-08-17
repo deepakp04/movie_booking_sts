@@ -7,6 +7,8 @@ import com.moviebooking.catalog.repository.*;
 import com.moviebooking.catalog.service.ScreenManagementService;
 import com.moviebooking.catalog.service.SeatConfigService;
 import com.moviebooking.catalog.service.ShowPricingService;
+import com.moviebooking.booking.dto.BookingDTOs.BookingResponse;
+import com.moviebooking.booking.service.BookingService;
 import com.moviebooking.common.exception.BusinessException;
 import com.moviebooking.common.exception.ResourceNotFoundException;
 import com.moviebooking.owner.dto.OwnerDTOs.*;
@@ -32,6 +34,7 @@ public class OwnerService {
     private final ShowPricingService showPricing;
     private final ScreenSeatRepository screenSeatRepository;
     private final com.moviebooking.booking.repository.ShowSeatRepository showSeatRepository;
+    private final BookingService bookingService;
 
     public OwnerService(UserRepository userRepository,
                          TheatreRepository theatreRepository,
@@ -42,7 +45,8 @@ public class OwnerService {
                          SeatConfigService seatConfig,
                          ShowPricingService showPricing,
                          ScreenSeatRepository screenSeatRepository,
-                         com.moviebooking.booking.repository.ShowSeatRepository showSeatRepository) {
+                         com.moviebooking.booking.repository.ShowSeatRepository showSeatRepository,
+                         BookingService bookingService) {
         this.userRepository = userRepository;
         this.theatreRepository = theatreRepository;
         this.screenRepository = screenRepository;
@@ -53,6 +57,7 @@ public class OwnerService {
         this.showPricing = showPricing;
         this.screenSeatRepository = screenSeatRepository;
         this.showSeatRepository = showSeatRepository;
+        this.bookingService = bookingService;
     }
 
     // Resolves the theatre owned by whoever is currently authenticated.
@@ -367,5 +372,22 @@ public class OwnerService {
                 return showRepository
                         .findByIsDeletedFalseAndStartTimeGreaterThanEqualOrderByStartTimeAsc(startOfToday);
         }
+    }
+
+    // ===== Booking logs (Owner-scoped) =====
+    public List<BookingResponse> getMyTheatreBookings() {
+        Theatre theatre = currentOwnersTheatre();
+        return bookingService.getBookingsByTheatre(theatre.getId());
+    }
+
+    public List<BookingResponse> getShowBookings(Long showId) {
+        Theatre theatre = currentOwnersTheatre();
+        // Verify the show belongs to this theatre
+        Show show = showRepository.findByIdAndIsDeletedFalse(showId)
+                .orElseThrow(() -> new ResourceNotFoundException("Show not found"));
+        if (!show.getScreen().getTheatre().getId().equals(theatre.getId())) {
+            throw new ResourceNotFoundException("Show not found");
+        }
+        return bookingService.getBookingsByShow(showId);
     }
 }

@@ -20,7 +20,10 @@ function isAuthenticated() {
 function checkAuthState() {
     const authNav = document.getElementById('authNav');
     if (isAuthenticated()) {
-        authNav.innerHTML = `<button class="btn btn-secondary btn-sm" onclick="window.location.href='/auth.html'">My Account</button>`;
+        authNav.innerHTML = `
+            <button class="btn btn-secondary btn-sm" onclick="window.location.href='/auth.html'">My Account</button>
+            <button class="btn btn-primary btn-sm" onclick="viewMyBookings()" style="margin-left: 8px;">🎬 My Bookings</button>
+        `;
     } else {
         authNav.innerHTML = `<button class="btn btn-primary btn-sm" onclick="redirectToLogin()">Sign In</button>`;
     }
@@ -683,4 +686,10 @@ function clearHoldCountdown() {
         clearInterval(holdCountdownInterval);
         holdCountdownInterval = null;
     }
+}
+// Quick access to My Bookings from the catalog page
+function viewMyBookings() {
+    window.location.href = '/auth.html';
+    // The auth page will automatically load the myBookingsView when it detects
+    // the user is logged in and they can click the My Bookings button
 }

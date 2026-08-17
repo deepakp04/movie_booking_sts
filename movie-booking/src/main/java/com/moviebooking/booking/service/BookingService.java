@@ -383,6 +383,39 @@ public class BookingService {
                 .toList();
     }
 
+    /**
+     * Get all bookings for a specific theatre (Admin/Owner use).
+     */
+    @Transactional(readOnly = true)
+    public List<BookingResponse> getBookingsByTheatre(Long theatreId) {
+        List<Booking> bookings = bookingRepository.findByTheatreId(theatreId);
+        return bookings.stream()
+                .map(this::toBookingResponseWithSeats)
+                .toList();
+    }
+
+    /**
+     * Get all bookings for a specific show (Admin/Owner use).
+     */
+    @Transactional(readOnly = true)
+    public List<BookingResponse> getBookingsByShow(Long showId) {
+        List<Booking> bookings = bookingRepository.findByShowId(showId);
+        return bookings.stream()
+                .map(this::toBookingResponseWithSeats)
+                .toList();
+    }
+
+    /**
+     * Get all bookings across the system (Admin only).
+     */
+    @Transactional(readOnly = true)
+    public List<BookingResponse> getAllBookings() {
+        List<Booking> bookings = bookingRepository.findAllByIsDeletedFalseOrderByCreatedAtDesc();
+        return bookings.stream()
+                .map(this::toBookingResponseWithSeats)
+                .toList();
+    }
+
     // User backs out before paying - release the seats immediately instead of
     // waiting for the hold to lapse.
     @Transactional

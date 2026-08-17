@@ -24,4 +24,7 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
     
     @Query("SELECT b FROM Booking b WHERE b.status = :status AND b.isDeleted = false ORDER BY b.createdAt DESC")
     List<Booking> findByStatus(@Param("status") BookingStatus status);
+    
+    @Query("SELECT b FROM Booking b WHERE b.isDeleted = false ORDER BY b.createdAt DESC")
+    List<Booking> findAllByIsDeletedFalseOrderByCreatedAtDesc();
 }
