@@ -371,6 +371,18 @@ public class BookingService {
         return toBookingResponse(booking, seats);
     }
 
+    /**
+     * Get all bookings for the current user - for "My Bookings" page.
+     */
+    @Transactional(readOnly = true)
+    public List<BookingResponse> getAllBookingsForUser() {
+        User user = currentUser();
+        List<Booking> bookings = bookingRepository.findByUserIdOrderByCreatedAtDesc(user.getId());
+        return bookings.stream()
+                .map(this::toBookingResponseWithSeats)
+                .toList();
+    }
+
     // User backs out before paying - release the seats immediately instead of
     // waiting for the hold to lapse.
     @Transactional
@@ -452,6 +464,36 @@ public class BookingService {
                 show.getScreen().getName(),
                 show.getStartTime(),
                 codes.isEmpty() ? List.of(b.getSeatCodes().split(",")) : codes,
+                lines,
+                b.getNumberOfSeats(),
+                b.getTotalAmount(),
+                b.getStatus(),
+                b.getHoldExpiresAt()
+        );
+    }
+
+    /**
+     * Convert booking to response without fetching individual seats.
+     * Used for list views where we only need summary info.
+     */
+    private BookingResponse toBookingResponseWithSeats(Booking b) {
+        Show show = b.getShow();
+        List<String> codes = List.of(b.getSeatCodes().split(","));
+        
+        // Create minimal seat lines without full seat details for list view
+        List<BookedSeatLine> lines = codes.stream()
+                .map(code -> new BookedSeatLine(code, null, null))
+                .toList();
+
+        return new BookingResponse(
+                b.getId(),
+                b.getTransactionId(),
+                show.getId(),
+                show.getMovie().getTitle(),
+                show.getScreen().getTheatre().getName(),
+                show.getScreen().getName(),
+                show.getStartTime(),
+                codes,
                 lines,
                 b.getNumberOfSeats(),
                 b.getTotalAmount(),
