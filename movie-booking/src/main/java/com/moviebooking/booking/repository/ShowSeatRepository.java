@@ -27,21 +27,19 @@ public interface ShowSeatRepository extends JpaRepository<ShowSeat, Long> {
     List<ShowSeat> findExpiredHoldsForUpdate(@Param("now") LocalDateTime now);
 
     // ---- Phase 3: layout-lock support ----
-    // A screen's layout may not be rewritten once any future show on it has
+    // A screen's layout may not be rewritten once any show on it has
     // materialized its seat map, because that show would otherwise keep selling
     // the old arrangement. Counting show_seats rows (not shows) is deliberate:
     // a show that has never been opened has no seats yet and does not block.
     @Query("SELECT COUNT(ss) FROM ShowSeat ss"
          + " WHERE ss.show.screen.id = :screenId"
-         + " AND ss.show.isDeleted = false"
-         + " AND ss.show.startTime > CURRENT_TIMESTAMP")
+         + " AND ss.show.isDeleted = false")
     long countMaterializedForScreen(@Param("screenId") Long screenId);
 
     @Query("SELECT DISTINCT CONCAT(ss.show.movie.title, ' at ', ss.show.startTime)"
          + " FROM ShowSeat ss"
          + " WHERE ss.show.screen.id = :screenId"
-         + " AND ss.show.isDeleted = false"
-         + " AND ss.show.startTime > CURRENT_TIMESTAMP")
+         + " AND ss.show.isDeleted = false")
     List<String> findMaterializedShowLabelsForScreen(@Param("screenId") Long screenId);
 
     long countByShowIdAndStatus(Long showId, com.moviebooking.booking.model.SeatStatus status);
