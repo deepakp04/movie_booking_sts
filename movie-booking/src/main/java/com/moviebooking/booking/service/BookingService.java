@@ -102,7 +102,7 @@ public class BookingService {
     // Safe under concurrency: if two requests race, the loser's insert violates
     // the (show_id, seat_code) unique constraint and is ignored.
     @Transactional
-    protected Show ensureSeatsInitialized(Long showId) {
+    public Show ensureSeatsInitialized(Long showId) {
         Show show = showRepository.findByIdAndIsDeletedFalse(showId)
                 .orElseThrow(() -> new ResourceNotFoundException("Show not found with ID: " + showId));
 
