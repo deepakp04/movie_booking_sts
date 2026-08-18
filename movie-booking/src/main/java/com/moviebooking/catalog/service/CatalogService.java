@@ -104,8 +104,12 @@ public class CatalogService {
 
         LocalDateTime startOfDay = date.atStartOfDay();
         LocalDateTime endOfDay = date.atTime(LocalTime.MAX);
+        LocalDateTime now = LocalDateTime.now();
 
-        List<Show> shows = showRepository.findShowsForMovieAndCityInDateRange(movieId, cityId, startOfDay, endOfDay);
+        // Only fetch shows that haven't started yet
+        LocalDateTime effectiveStart = (startOfDay.isBefore(now)) ? now : startOfDay;
+
+        List<Show> shows = showRepository.findShowsForMovieAndCityInDateRange(movieId, cityId, effectiveStart, endOfDay);
 
         // Group shows by Theatre
         Map<Theatre, List<Show>> theatreShowMap = shows.stream()

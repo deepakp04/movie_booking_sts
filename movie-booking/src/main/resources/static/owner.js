@@ -184,8 +184,26 @@ async function loadMyShows() {
         if (!res) return;
         const tbody = document.getElementById('showsTableBody');
         tbody.innerHTML = '';
+        
+        const now = new Date();
+
         res.data.forEach(s => {
-            const start = s.startTime ? new Date(s.startTime).toLocaleString() : '';
+            const showDateTime = s.startTime ? new Date(s.startTime) : null;
+            if (!showDateTime) return;
+            
+            // Skip past shows for upcoming scope - they should only appear in "past" scope
+            if (scope === 'upcoming' && showDateTime <= now) {
+                return;
+            }
+            
+            // Skip future shows for past scope
+            if (scope === 'past' && showDateTime > now) {
+                return;
+            }
+
+            const start = showDateTime.toLocaleString();
+            const isPast = showDateTime <= now;
+            
             tbody.innerHTML += `
                 <tr>
                     <td>${s.movieTitle || ''}</td>
@@ -193,7 +211,10 @@ async function loadMyShows() {
                     <td>${start}</td>
                     <td>${s.format || ''}</td>
                     <td>₹${s.basePrice}</td>
-                    <td><button class="btn-danger-sm" onclick="cancelShow(${s.id})">Cancel</button></td>
+                    <td>
+                        ${isPast ? '<span style="color: var(--text-muted);">Completed</span>' 
+                                 : `<button class="btn-danger-sm" onclick="cancelShow(${s.id})">Cancel</button>`}
+                    </td>
                 </tr>
             `;
         });

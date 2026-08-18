@@ -257,6 +257,8 @@ async function loadShowtimes() {
             return;
         }
 
+        const now = new Date();
+
         result.data.forEach(theatre => {
             const card = document.createElement('div');
             card.className = 'theatre-card';
@@ -274,7 +276,17 @@ async function loadShowtimes() {
             const chipWrap = document.createElement('div');
             chipWrap.className = 'showtime-chips';
 
-            theatre.shows.forEach(show => {
+            // Filter out past shows on the client side as well
+            const futureShows = theatre.shows.filter(show => {
+                const showDateTime = new Date(show.startTime);
+                return showDateTime > now;
+            });
+
+            if (futureShows.length === 0) {
+                return; // Skip this theatre if no future shows
+            }
+
+            futureShows.forEach(show => {
                 const showTime = new Date(show.startTime)
                     .toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -311,9 +323,10 @@ async function loadShowtimes() {
                 chipWrap.appendChild(chip);
             });
 
-            card.append(nameEl, addrEl, chipWrap);
-
-            list.appendChild(card);
+            if (chipWrap.children.length > 0) {
+                card.append(nameEl, addrEl, chipWrap);
+                list.appendChild(card);
+            }
         });
 
     } catch (err) {

@@ -190,6 +190,14 @@ public class OwnerService {
                         && s.getScreen().getTheatre().getId().equals(t.getId()))
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Show not found in your theatre with ID: " + showId));
+        
+        // Prevent cancelling past shows - they've already happened
+        if (show.getStartTime().isBefore(java.time.LocalDateTime.now())) {
+            throw new BusinessException(
+                    "Cannot cancel a show that has already started or passed. " +
+                    "Past shows cannot be cancelled.");
+        }
+        
         // Soft delete - a hard delete destroyed the show's paid bookings.
         show.setIsDeleted(true);
         showRepository.save(show);
@@ -369,8 +377,10 @@ public class OwnerService {
                 return showRepository.findByIsDeletedFalseOrderByStartTimeDesc();
             case "upcoming":
             default:
+                // Filter to only future shows (not started yet) for customers
+                // but include today's shows for admin visibility
                 return showRepository
-                        .findByIsDeletedFalseAndStartTimeGreaterThanEqualOrderByStartTimeAsc(startOfToday);
+                        .findByIsDeletedFalseAndStartTimeGreaterThanEqualOrderByStartTimeAsc(LocalDateTime.now());
         }
     }
 

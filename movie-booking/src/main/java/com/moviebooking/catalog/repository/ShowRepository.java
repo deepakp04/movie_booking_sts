@@ -51,6 +51,7 @@ public interface ShowRepository extends JpaRepository<Show, Long> {
          + " WHERE s.movie.id = :movieId"
          + " AND s.screen.theatre.city.id = :cityId"
          + " AND s.startTime BETWEEN :startTime AND :endTime"
+         + " AND s.startTime > CURRENT_TIMESTAMP"
          + " AND s.isDeleted = false"
          + " AND s.movie.isDeleted = false"
          + " AND s.screen.isDeleted = false"

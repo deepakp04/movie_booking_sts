@@ -451,8 +451,10 @@ public class AdminService {
                 return showRepository.findByIsDeletedFalseOrderByStartTimeDesc();
             case "upcoming":
             default:
+                // Filter to only future shows (not started yet) for customers
+                // but include today's shows for admin visibility
                 return showRepository
-                        .findByIsDeletedFalseAndStartTimeGreaterThanEqualOrderByStartTimeAsc(startOfToday);
+                        .findByIsDeletedFalseAndStartTimeGreaterThanEqualOrderByStartTimeAsc(LocalDateTime.now());
         }
     }
 
@@ -480,9 +482,18 @@ public class AdminService {
 
     // Soft delete: hard-deleting a show destroyed its bookings, and with them
     // the revenue history the Analytics module is meant to report on.
+    // Past shows cannot be cancelled as they have already occurred.
     public void cancelShow(Long id) {
         Show show = showRepository.findByIdAndIsDeletedFalse(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Show not found with ID: " + id));
+        
+        // Prevent cancelling past shows - they've already happened
+        if (show.getStartTime().isBefore(LocalDateTime.now())) {
+            throw new BusinessException(
+                    "Cannot cancel a show that has already started or passed. " +
+                    "Past shows cannot be cancelled.");
+        }
+        
         show.setIsDeleted(true);
         showRepository.save(show);
     }
