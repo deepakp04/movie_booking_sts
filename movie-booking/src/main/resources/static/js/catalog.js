@@ -10,6 +10,7 @@ let pendingShowBooking = null;
 document.addEventListener('DOMContentLoaded', () => {
     loadCities();
     checkAuthState();
+    resumeHoldSession(); // Resume any active hold session on page load
 });
 
 // Auth Check (matching auth.js token key "accessToken")
@@ -20,7 +21,10 @@ function isAuthenticated() {
 function checkAuthState() {
     const authNav = document.getElementById('authNav');
     if (isAuthenticated()) {
-        authNav.innerHTML = `<button class="btn btn-secondary btn-sm" onclick="window.location.href='/auth.html'">My Account</button>`;
+        authNav.innerHTML = `
+            <button class="btn btn-secondary btn-sm" onclick="window.location.href='/auth.html'">My Account</button>
+            <button class="btn btn-primary btn-sm" onclick="viewMyBookings()" style="margin-left: 8px;">🎬 My Bookings</button>
+        `;
     } else {
         authNav.innerHTML = `<button class="btn btn-primary btn-sm" onclick="redirectToLogin()">Sign In</button>`;
     }
@@ -253,6 +257,8 @@ async function loadShowtimes() {
             return;
         }
 
+        const now = new Date();
+
         result.data.forEach(theatre => {
             const card = document.createElement('div');
             card.className = 'theatre-card';
@@ -270,7 +276,17 @@ async function loadShowtimes() {
             const chipWrap = document.createElement('div');
             chipWrap.className = 'showtime-chips';
 
-            theatre.shows.forEach(show => {
+            // Filter out past shows on the client side as well
+            const futureShows = theatre.shows.filter(show => {
+                const showDateTime = new Date(show.startTime);
+                return showDateTime > now;
+            });
+
+            if (futureShows.length === 0) {
+                return; // Skip this theatre if no future shows
+            }
+
+            futureShows.forEach(show => {
                 const showTime = new Date(show.startTime)
                     .toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -307,9 +323,10 @@ async function loadShowtimes() {
                 chipWrap.appendChild(chip);
             });
 
-            card.append(nameEl, addrEl, chipWrap);
-
-            list.appendChild(card);
+            if (chipWrap.children.length > 0) {
+                card.append(nameEl, addrEl, chipWrap);
+                list.appendChild(card);
+            }
         });
 
     } catch (err) {
@@ -361,6 +378,50 @@ let activeShowContext = null;
 let selectedSeats = [];
 let activeBookingId = null;
 let holdCountdownInterval = null;
+let holdExpiresAt = null;
+
+// On page load, check if there's an active hold session to resume
+function resumeHoldSession() {
+    const savedBookingId = localStorage.getItem('activeBookingId');
+    const savedExpiresAt = localStorage.getItem('holdExpiresAt');
+    const savedShowContext = localStorage.getItem('activeShowContext');
+    
+    if (savedBookingId && savedExpiresAt && savedShowContext) {
+        activeBookingId = savedBookingId;
+        holdExpiresAt = new Date(savedExpiresAt).getTime();
+        activeShowContext = JSON.parse(savedShowContext);
+        
+        // Check if hold is still valid
+        if (holdExpiresAt > Date.now()) {
+            console.log('[RESUME HOLD] Resuming hold session for booking:', activeBookingId);
+            startHoldCountdownFromStorage();
+            return true;
+        } else {
+            console.log('[RESUME HOLD] Hold expired, clearing session');
+            clearHoldSession();
+        }
+    }
+    return false;
+}
+
+function saveHoldSession() {
+    if (activeBookingId && holdExpiresAt) {
+        localStorage.setItem('activeBookingId', activeBookingId);
+        localStorage.setItem('holdExpiresAt', new Date(holdExpiresAt).toISOString());
+        if (activeShowContext) {
+            localStorage.setItem('activeShowContext', JSON.stringify(activeShowContext));
+        }
+    }
+}
+
+function clearHoldSession() {
+    localStorage.removeItem('activeBookingId');
+    localStorage.removeItem('holdExpiresAt');
+    localStorage.removeItem('activeShowContext');
+    activeBookingId = null;
+    holdExpiresAt = null;
+    clearHoldCountdown();
+}
 
 // Authenticated helper - booking endpoints always require a valid JWT
 async function bookingApiCall(endpoint, method = 'GET', body = null) {
@@ -454,7 +515,14 @@ async function initiateBooking(showId, theatreName, time, screenName) {
     document.getElementById('movieDetailView').classList.add('hidden');
     document.getElementById('seatSelectionView').classList.remove('hidden');
 
-    await fetchAndRenderSeats(showId);
+    // Check if there's an existing hold for this show before fetching seats
+    const hasActiveHold = resumeHoldSession();
+    if (hasActiveHold && activeShowContext.showId === showId) {
+        // If we have an active hold for this show, just fetch and render seats
+        await fetchAndRenderSeats(showId);
+    } else {
+        await fetchAndRenderSeats(showId);
+    }
 }
 
 // Renders the screen's real grid: tier colours, and pathways left as gaps in the
@@ -510,23 +578,27 @@ async function fetchAndRenderSeats(showId) {
                     return;
                 }
 
+                // Check if seat is held by current user
+                const heldByMe = cell.status === 'HELD' && cell.heldByMe === true;
                 const taken = cell.status === 'BOOKED'
-                    || (cell.status === 'HELD' && !cell.heldByMe);
+                    || (cell.status === 'HELD' && !heldByMe);
 
                 const el = document.createElement('div');
-                el.className = `seat ${taken ? 'booked' : 'available'}`;
+                el.className = `seat ${taken ? 'booked' : (heldByMe ? 'held' : 'available')}`;
                 el.textContent = cell.seatNumber;
                 el.dataset.id = cell.seatCode;
 
-                if (!taken && cell.tierColorHex) {
+                if (!taken && !heldByMe && cell.tierColorHex) {
                     el.style.borderColor = cell.tierColorHex;
                     el.style.boxShadow = `inset 0 -3px 0 ${cell.tierColorHex}`;
                 }
                 el.title = taken
                     ? `${cell.seatCode} - unavailable`
-                    : `${cell.seatCode}${cell.tierName ? ' - ' + cell.tierName : ''} - ₹${cell.price}`;
+                    : (heldByMe 
+                        ? `${cell.seatCode} - Held by you (expires in countdown)`
+                        : `${cell.seatCode}${cell.tierName ? ' - ' + cell.tierName : ''} - ₹${cell.price}`);
 
-                if (!taken) {
+                if (!taken && !heldByMe) {
                     el.onclick = () => toggleSeatSelection(el, cell.seatCode);
                 }
                 rowEl.appendChild(el);
@@ -634,6 +706,10 @@ async function proceedToPayment() {
 
         const booking = res.data;
         activeBookingId = booking.bookingId;
+        holdExpiresAt = new Date(booking.holdExpiresAt).getTime();
+
+        // Save hold session to localStorage for persistence across refreshes
+        saveHoldSession();
 
         showAlert(
             `Seats held: ${booking.seatCodes.join(', ')} | Total ₹${booking.totalAmount} | ` +
@@ -659,11 +735,13 @@ async function proceedToPayment() {
 function startHoldCountdown(expiresAtIso) {
     clearHoldCountdown();
     const expiresAt = new Date(expiresAtIso).getTime();
+    holdExpiresAt = expiresAt;
 
     holdCountdownInterval = setInterval(() => {
         const remainingMs = expiresAt - Date.now();
         if (remainingMs <= 0) {
             clearHoldCountdown();
+            clearHoldSession();
             showAlert('Your seat hold has expired. Please select seats again.', 'error');
             selectedSeats = [];
             activeBookingId = null;
@@ -673,8 +751,35 @@ function startHoldCountdown(expiresAtIso) {
         }
         const mins = Math.floor(remainingMs / 60000);
         const secs = Math.floor((remainingMs % 60000) / 1000);
-        document.getElementById('totalPriceDisplay').innerText =
-            `₹ ${selectedSeats.reduce((t, c) => t + (seatPriceMap[c] || 0), 0)} (Hold: ${mins}:${secs.toString().padStart(2, '0')})`;
+        // Show countdown even when no seats are selected (after hold is complete)
+        const currentTotal = selectedSeats.length > 0 
+            ? `₹ ${selectedSeats.reduce((t, c) => t + (seatPriceMap[c] || 0), 0)} (Hold: ${mins}:${secs.toString().padStart(2, '0')})`
+            : `(Hold: ${mins}:${secs.toString().padStart(2, '0')})`;
+        document.getElementById('totalPriceDisplay').innerText = currentTotal;
+    }, 1000);
+}
+
+// Start countdown from stored expiry time (for page refresh scenarios)
+function startHoldCountdownFromStorage() {
+    if (!holdExpiresAt) return;
+    
+    holdCountdownInterval = setInterval(() => {
+        const remainingMs = holdExpiresAt - Date.now();
+        if (remainingMs <= 0) {
+            clearHoldCountdown();
+            clearHoldSession();
+            showAlert('Your seat hold has expired. Please select seats again.', 'error');
+            selectedSeats = [];
+            activeBookingId = null;
+            updateCheckoutBar();
+            if (activeShowContext) {
+                fetchAndRenderSeats(activeShowContext.showId);
+            }
+            return;
+        }
+        const mins = Math.floor(remainingMs / 60000);
+        const secs = Math.floor((remainingMs % 60000) / 1000);
+        document.getElementById('totalPriceDisplay').innerText = `(Hold: ${mins}:${secs.toString().padStart(2, '0')})`;
     }, 1000);
 }
 
@@ -683,4 +788,21 @@ function clearHoldCountdown() {
         clearInterval(holdCountdownInterval);
         holdCountdownInterval = null;
     }
+}
+
+// Update goBackToMovieDetail to also clear hold session
+function goBackToMovieDetail() {
+    document.getElementById('seatSelectionView').classList.add('hidden');
+    document.getElementById('movieDetailView').classList.remove('hidden');
+    selectedSeats = [];
+    requiredSeatCount = 0;
+    clearHoldSession(); // Clear the hold session when leaving seat selection
+    updateCheckoutBar();
+}
+
+// Quick access to My Bookings from the catalog page
+function viewMyBookings() {
+    window.location.href = '/auth.html';
+    // The auth page will automatically load the myBookingsView when it detects
+    // the user is logged in and they can click the My Bookings button
 }

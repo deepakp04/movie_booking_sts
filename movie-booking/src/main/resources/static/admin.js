@@ -475,8 +475,24 @@ async function loadShows() {
         const tbody = document.getElementById('showsTableBody');
         tbody.innerHTML = '';
 
+        const now = new Date();
+
         res.data.forEach(s => {
-            const dateStr = new Date(s.startTime).toLocaleString();
+            const showDateTime = new Date(s.startTime);
+            
+            // Skip past shows for upcoming scope - they should only appear in "past" scope
+            if (scope === 'upcoming' && showDateTime <= now) {
+                return;
+            }
+            
+            // Skip future shows for past scope
+            if (scope === 'past' && showDateTime > now) {
+                return;
+            }
+
+            const dateStr = showDateTime.toLocaleString();
+            const isPast = showDateTime <= now;
+            
             tbody.innerHTML += `
                 <tr>
                     <td>#${s.id}</td>
@@ -485,7 +501,8 @@ async function loadShows() {
                     <td>${dateStr}</td>
                     <td>₹${s.price} (${s.format})</td>
                     <td>
-                        <button class="btn-danger-sm" onclick="deleteShow(${s.id})">Cancel</button>
+                        ${isPast ? '<span style="color: var(--text-muted);">Completed</span>' 
+                                 : `<button class="btn-danger-sm" onclick="deleteShow(${s.id})">Cancel</button>`}
                     </td>
                 </tr>
             `;

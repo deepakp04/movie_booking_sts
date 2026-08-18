@@ -5,6 +5,8 @@ import com.moviebooking.booking.service.BookingService;
 import com.moviebooking.common.response.ApiResponse;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/api/booking")
 public class BookingController {
@@ -35,5 +37,13 @@ public class BookingController {
     public ApiResponse<Void> cancelBooking(@PathVariable("bookingId") Long bookingId) {
         bookingService.cancelBooking(bookingId);
         return new ApiResponse<>(true, "Booking cancelled and seats released.", null);
+    }
+
+    /**
+     * Get all bookings for the current user - "My Bookings" endpoint.
+     */
+    @GetMapping("/my-bookings")
+    public ApiResponse<List<BookingResponse>> getMyBookings() {
+        return new ApiResponse<>(true, "Bookings retrieved successfully", bookingService.getAllBookingsForUser());
     }
 }

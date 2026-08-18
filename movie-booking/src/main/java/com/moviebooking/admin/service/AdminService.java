@@ -8,6 +8,7 @@ import com.moviebooking.catalog.repository.*;
 import com.moviebooking.catalog.service.ScreenManagementService;
 import com.moviebooking.catalog.service.SeatConfigService;
 import com.moviebooking.catalog.service.ShowPricingService;
+import com.moviebooking.booking.dto.BookingDTOs.BookingResponse;
 import com.moviebooking.common.constants.Role;
 import com.moviebooking.common.constants.UserStatus;
 import com.moviebooking.common.exception.BusinessException;
@@ -37,6 +38,7 @@ public class AdminService {
     private final ShowPricingService showPricing;
     private final ScreenSeatRepository screenSeatRepository;
     private final com.moviebooking.booking.repository.ShowSeatRepository showSeatRepository;
+    private final com.moviebooking.booking.service.BookingService bookingService;
 
     public AdminService(CityRepository cityRepository,
                         MovieRepository movieRepository,
@@ -49,7 +51,8 @@ public class AdminService {
                         SeatConfigService seatConfig,
                         ShowPricingService showPricing,
                         ScreenSeatRepository screenSeatRepository,
-                        com.moviebooking.booking.repository.ShowSeatRepository showSeatRepository) {
+                        com.moviebooking.booking.repository.ShowSeatRepository showSeatRepository,
+                        com.moviebooking.booking.service.BookingService bookingService) {
         this.cityRepository = cityRepository;
         this.movieRepository = movieRepository;
         this.theatreRepository = theatreRepository;
@@ -62,6 +65,7 @@ public class AdminService {
         this.showPricing = showPricing;
         this.screenSeatRepository = screenSeatRepository;
         this.showSeatRepository = showSeatRepository;
+        this.bookingService = bookingService;
     }
 
     // --- CITIES ---
@@ -447,8 +451,10 @@ public class AdminService {
                 return showRepository.findByIsDeletedFalseOrderByStartTimeDesc();
             case "upcoming":
             default:
+                // Filter to only future shows (not started yet) for customers
+                // but include today's shows for admin visibility
                 return showRepository
-                        .findByIsDeletedFalseAndStartTimeGreaterThanEqualOrderByStartTimeAsc(startOfToday);
+                        .findByIsDeletedFalseAndStartTimeGreaterThanEqualOrderByStartTimeAsc(LocalDateTime.now());
         }
     }
 
@@ -476,9 +482,18 @@ public class AdminService {
 
     // Soft delete: hard-deleting a show destroyed its bookings, and with them
     // the revenue history the Analytics module is meant to report on.
+    // Past shows cannot be cancelled as they have already occurred.
     public void cancelShow(Long id) {
         Show show = showRepository.findByIdAndIsDeletedFalse(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Show not found with ID: " + id));
+        
+        // Prevent cancelling past shows - they've already happened
+        if (show.getStartTime().isBefore(LocalDateTime.now())) {
+            throw new BusinessException(
+                    "Cannot cancel a show that has already started or passed. " +
+                    "Past shows cannot be cancelled.");
+        }
+        
         show.setIsDeleted(true);
         showRepository.save(show);
     }
@@ -602,5 +617,18 @@ public class AdminService {
                 t != null ? t.getId() : null,
                 t != null ? t.getName() : null,
                 t != null ? t.getColorHex() : null);
+    }
+
+    // ===== Booking logs =====
+    public List<BookingResponse> getAllBookings() {
+        return bookingService.getAllBookings();
+    }
+
+    public List<BookingResponse> getBookingsByTheatre(Long theatreId) {
+        return bookingService.getBookingsByTheatre(theatreId);
+    }
+
+    public List<BookingResponse> getBookingsByShow(Long showId) {
+        return bookingService.getBookingsByShow(showId);
     }
 }

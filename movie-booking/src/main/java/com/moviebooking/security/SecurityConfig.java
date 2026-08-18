@@ -39,6 +39,9 @@ public class SecurityConfig {
                     "/owner.html", "/owner.js"
                 ).permitAll()
 
+                // Booking API - requires authentication
+                .requestMatchers("/api/booking/**").authenticated()
+                
                 // Admin & Owner API Protection matching your Role Enum
                 .requestMatchers("/api/admin/**").hasRole(Role.ADMIN.name())
                 .requestMatchers("/api/owner/**").hasAnyRole(Role.ADMIN.name(), Role.THEATRE_OWNER.name())
