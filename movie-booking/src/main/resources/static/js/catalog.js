@@ -565,23 +565,27 @@ async function fetchAndRenderSeats(showId) {
                     return;
                 }
 
+                // Check if seat is held by current user
+                const heldByMe = cell.status === 'HELD' && cell.heldByMe === true;
                 const taken = cell.status === 'BOOKED'
-                    || (cell.status === 'HELD' && !cell.heldByMe);
+                    || (cell.status === 'HELD' && !heldByMe);
 
                 const el = document.createElement('div');
-                el.className = `seat ${taken ? 'booked' : 'available'}`;
+                el.className = `seat ${taken ? 'booked' : (heldByMe ? 'held' : 'available')}`;
                 el.textContent = cell.seatNumber;
                 el.dataset.id = cell.seatCode;
 
-                if (!taken && cell.tierColorHex) {
+                if (!taken && !heldByMe && cell.tierColorHex) {
                     el.style.borderColor = cell.tierColorHex;
                     el.style.boxShadow = `inset 0 -3px 0 ${cell.tierColorHex}`;
                 }
                 el.title = taken
                     ? `${cell.seatCode} - unavailable`
-                    : `${cell.seatCode}${cell.tierName ? ' - ' + cell.tierName : ''} - ₹${cell.price}`;
+                    : (heldByMe 
+                        ? `${cell.seatCode} - Held by you (expires in countdown)`
+                        : `${cell.seatCode}${cell.tierName ? ' - ' + cell.tierName : ''} - ₹${cell.price}`);
 
-                if (!taken) {
+                if (!taken && !heldByMe) {
                     el.onclick = () => toggleSeatSelection(el, cell.seatCode);
                 }
                 rowEl.appendChild(el);

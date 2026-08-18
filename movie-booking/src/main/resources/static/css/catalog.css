@@ -505,6 +505,24 @@ body {
     text-decoration: line-through;
 }
 
+/* Held by current user - orange/gold with lock indicator */
+.seat.held {
+    background: #d97706;
+    color: #000;
+    border: 1px solid #d97706;
+    box-shadow: 0 0 10px rgba(217, 119, 6, 0.4);
+    cursor: not-allowed;
+    position: relative;
+}
+
+.seat.held::after {
+    content: '🔒';
+    position: absolute;
+    font-size: 0.5rem;
+    top: -2px;
+    right: -2px;
+}
+
 /* This makes the pathways render as empty space */
 .seat.pathway {
     background: transparent;
