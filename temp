@@ -1,30 +1,202 @@
--- MIGRATION-PAYMENT.sql
-CREATE TABLE IF NOT EXISTS payments (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    booking_id BIGINT NOT NULL,
-    razorpay_order_id VARCHAR(255) NOT NULL UNIQUE,
-    razorpay_payment_id VARCHAR(255),
-    razorpay_signature VARCHAR(255),
-    amount DECIMAL(10, 2) NOT NULL,
-    currency VARCHAR(10) DEFAULT 'INR',
-    status VARCHAR(50) NOT NULL DEFAULT 'PENDING', -- PENDING, SUCCESS, FAILED, EXPIRED
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    paid_at TIMESTAMP NULL,
-    CONSTRAINT fk_payments_booking FOREIGN KEY (booking_id) REFERENCES bookings(id)
-);
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 
--- Index for faster lookups during webhook verification
-CREATE INDEX idx_razorpay_order_id ON payments(razorpay_order_id);
-CREATE INDEX idx_payment_status ON payments(status);
+on top of catalogjs
+let currentBookingId = null; // Stores ID during payment flow
+let razorpayKey = null;      // Will be fetched from backend
 
--- Verification
-SELECT COUNT(*) as payment_table_rows FROM payments;
+function openHoldConfirmationModal(holdResponse) {
+    // ... existing code to render modal content ...
+    
+    const confirmBtn = document.getElementById('confirm-payment-btn');
+    const cancelBtn = document.getElementById('cancel-booking-btn');
+    
+    // Store booking ID globally for the payment callback to access
+    currentBookingId = holdResponse.data.id; 
+    
+    // Update button to trigger Razorpay flow
+    confirmBtn.textContent = `Pay ₹${holdResponse.data.totalAmount}`;
+    confirmBtn.onclick = () => initiatePayment(holdResponse);
+    
+    cancelBtn.onclick = () => cancelBooking(currentBookingId);
+    
+    // Show modal
+    document.getElementById('payment-modal').classList.remove('hidden');
+    
+    // Start countdown timer (existing logic)
+    startCountdown(holdResponse.data.expiresAt);
+}
 
-# Razorpay Configuration
-razorpay.key.id=rzp_test_TSP0U98KwRfgJl
-razorpay.key.secret=rOLDHIeR6mBcnVg2CVyD7lBg
-razorpay.webhook.secret=dummy_secret_for_local_testing
+/**
+ * Step 1: Fetch Order ID from Backend & Open Razorpay Checkout
+ */
+async function initiatePayment(holdResponse) {
+    const payBtn = document.getElementById('confirm-payment-btn');
+    payBtn.disabled = true;
+    payBtn.textContent = "Loading...";
 
-rzp_test_TSP0U98KwRfgJl - api key
-rOLDHIeR6mBcnVg2CVyD7lBg - secret
+    try {
+        // 1. Create Order on Backend
+        const orderRes = await fetch('/api/payment/create-order', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${getAuthToken()}` // Ensure you have a helper to get JWT
+            },
+            body: JSON.stringify({ bookingId: currentBookingId })
+        });
+
+        const orderResult = await orderRes.json();
+
+        if (!orderResult.success) {
+            throw new Error(orderResult.message || "Failed to create payment order");
+        }
+
+        const orderData = orderResult.data;
+        razorpayKey = orderData.keyId; // Save key for options
+
+        // 2. Configure Razorpay Options
+        const options = {
+            key: orderData.keyId,
+            amount: orderData.amount, // Amount in smallest currency unit (paise)
+            currency: orderData.currency,
+            name: "Movie Booking System",
+            description: "Ticket Purchase",
+            order_id: orderData.orderId,
+            handler: function (response) {
+                handlePaymentSuccess(response, currentBookingId);
+            },
+            prefill: {
+                name: getCurrentUserName(), // Implement helper or hardcode for now
+                email: getCurrentUserEmail(),
+                contact: "9999999999"
+            },
+            theme: {
+                color: "#E91E63"
+            },
+            modal: {
+                ondismiss: function() {
+                    // User closed the modal without paying
+                    alert("Payment cancelled. Your seats are still held for a few more minutes.");
+                    payBtn.disabled = false;
+                    payBtn.textContent = `Pay ₹${holdResponse.data.totalAmount}`;
+                }
+            }
+        };
+
+        // 3. Open Checkout
+        const rzp = new Razorpay(options);
+        rzp.on('payment.failed', function (response) {
+            alert("Payment Failed: " + response.error.description);
+            payBtn.disabled = false;
+            payBtn.textContent = `Retry Payment`;
+        });
+        
+        rzp.open();
+
+    } catch (error) {
+        console.error("Payment initiation error:", error);
+        alert("Error initiating payment: " + error.message);
+        payBtn.disabled = false;
+        payBtn.textContent = `Pay ₹${holdResponse.data.totalAmount}`;
+        
+        // If error is session expired, redirect
+        if (error.message.includes("expired")) {
+            window.location.reload(); 
+        }
+    }
+}
+
+/**
+ * Step 2: Handle Success Callback from Razorpay
+ */
+async function handlePaymentSuccess(paymentResponse, bookingId) {
+    const modal = document.getElementById('payment-modal');
+    modal.querySelector('.modal-content').innerHTML = `
+        <div style="text-align:center; padding: 20px;">
+            <h3>Verifying Payment...</h3>
+            <p>Please do not close this window.</p>
+        </div>
+    `;
+
+    try {
+        const verifyRes = await fetch('/api/payment/verify', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${getAuthToken()}`
+            },
+            body: JSON.stringify({
+                bookingId: bookingId,
+                razorpayPaymentId: paymentResponse.razorpay_payment_id,
+                razorpayOrderId: paymentResponse.razorpay_order_id,
+                razorpaySignature: paymentResponse.razorpay_signature
+            })
+        });
+
+        const verifyResult = await verifyRes.json();
+
+        if (verifyResult.success) {
+            showBookingSuccess(verifyResult.data);
+        } else {
+            throw new Error(verifyResult.message || "Payment verification failed");
+        }
+
+    } catch (error) {
+        console.error("Verification error:", error);
+        alert("Payment might be successful but verification failed. Please contact support with ID: " + paymentResponse.razorpay_payment_id);
+        // Optionally redirect to My Bookings to check status
+        window.location.href = 'my-bookings.html'; 
+    }
+}
+
+/**
+ * Step 3: Show Final Success Screen
+ */
+function showBookingSuccess(bookingData) {
+    const modal = document.getElementById('payment-modal');
+    modal.querySelector('.modal-content').innerHTML = `
+        <div style="text-align:center; padding: 20px;">
+            <div style="color:green; font-size:48px; margin-bottom:10px;">✓</div>
+            <h2>Booking Confirmed!</h2>
+            <p>Booking ID: <strong>${bookingData.id}</strong></p>
+            <p>Tickets sent to your email.</p>
+            <button class="btn btn-primary" onclick="window.location.href='my-bookings.html'" style="margin-top:20px;">
+                View My Bookings
+            </button>
+        </div>
+    `;
+}
+
+/**
+ * Helper: Cancel Booking (if user changes mind before paying)
+ */
+async function cancelBooking(bookingId) {
+    if(!confirm("Are you sure? This will release your seats.")) return;
+
+    try {
+        await fetch(`/api/booking/${bookingId}/cancel`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${getAuthToken()}` }
+        });
+        document.getElementById('payment-modal').classList.add('hidden');
+        alert("Seats released successfully.");
+        window.location.reload();
+    } catch (e) {
+        alert("Failed to cancel: " + e.message);
+    }
+}
+
+// --- Helpers you might need to add if missing ---
+function getAuthToken() {
+    return localStorage.getItem('jwt_token'); // Adjust key based on your auth storage
+}
+
+function getCurrentUserName() {
+    // Parse JWT or return default
+    return "Guest"; 
+}
+
+function getCurrentUserEmail() {
+    // Parse JWT or return default
+    return ""; 
+}
