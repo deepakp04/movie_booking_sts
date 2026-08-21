@@ -171,7 +171,52 @@ public class OwnerService {
         }
         Show saved = showRepository.save(show);
         showPricing.saveTierPrices(saved, toPricingInputs(req.tierPrices()));
+
+        // Reserve seats at scheduling time if requested (e.g. house seats,
+        // complimentary blocks). These seats are marked BOOKED immediately.
+        if (req.reservedSeatCodes() != null && !req.reservedSeatCodes().isEmpty()) {
+            reserveSeatsAtScheduling(saved, req.reservedSeatCodes());
+        }
+
         return toShowResponse(saved);
+    }
+
+    /**
+     * Reserves specific seats when a show is scheduled. Used for house seats,
+     * complimentary blocks, or technical holds (e.g. projector view obstruction).
+     * The seats are marked BOOKED with a zero-value booking so they never appear
+     * available to customers.
+     */
+    private void reserveSeatsAtScheduling(Show show, List<String> seatCodes) {
+        // Ensure the show's seat map is materialized first
+        show = bookingService.ensureSeatsInitialized(show.getId());
+
+        List<com.moviebooking.booking.model.ShowSeat> showSeats =
+                showSeatRepository.findByShowId(show.getId());
+
+        Map<String, com.moviebooking.booking.model.ShowSeat> byCode =
+                showSeats.stream().collect(Collectors.toMap(s -> s.getSeatCode(), s -> s));
+
+        List<String> invalid = seatCodes.stream()
+                .filter(code -> !byCode.containsKey(code))
+                .toList();
+        if (!invalid.isEmpty()) {
+            throw new BusinessException(
+                    "These seat codes do not exist on this screen: " + String.join(", ", invalid));
+        }
+
+        List<com.moviebooking.booking.model.ShowSeat> toReserve = seatCodes.stream()
+                .map(byCode::get)
+                .filter(s -> s.getStatus() != com.moviebooking.booking.model.SeatStatus.BOOKED)
+                .toList();
+
+        for (com.moviebooking.booking.model.ShowSeat s : toReserve) {
+            s.setStatus(com.moviebooking.booking.model.SeatStatus.BOOKED);
+            // No booking record is created - these are admin-reserved seats
+            // that simply never become available. If audit trail is needed,
+            // a zero-value Booking could be created here.
+        }
+        showSeatRepository.saveAll(toReserve);
     }
 
     public List<ShowResponse> getMyShows(String scope) {

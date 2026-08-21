@@ -18,6 +18,8 @@ import com.moviebooking.catalog.repository.ShowRepository;
 import com.moviebooking.catalog.service.ShowPricingService;
 import com.moviebooking.common.exception.BusinessException;
 import com.moviebooking.common.exception.ResourceNotFoundException;
+import com.moviebooking.stream.dto.SeatUpdateEvent;
+import com.moviebooking.stream.service.SeatStreamService;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -51,19 +53,22 @@ public class BookingService {
     private final UserRepository userRepository;
     private final ScreenSeatRepository screenSeatRepository;
     private final ShowPricingService showPricing;
+    private final SeatStreamService seatStreamService;
 
     public BookingService(ShowRepository showRepository,
                            ShowSeatRepository showSeatRepository,
                            BookingRepository bookingRepository,
                            UserRepository userRepository,
                            ScreenSeatRepository screenSeatRepository,
-                           ShowPricingService showPricing) {
+                           ShowPricingService showPricing,
+                           SeatStreamService seatStreamService) {
         this.showRepository = showRepository;
         this.showSeatRepository = showSeatRepository;
         this.bookingRepository = bookingRepository;
         this.userRepository = userRepository;
         this.screenSeatRepository = screenSeatRepository;
         this.showPricing = showPricing;
+        this.seatStreamService = seatStreamService;
     }
 
     private User currentUser() {
@@ -102,7 +107,7 @@ public class BookingService {
     // Safe under concurrency: if two requests race, the loser's insert violates
     // the (show_id, seat_code) unique constraint and is ignored.
     @Transactional
-    protected Show ensureSeatsInitialized(Long showId) {
+    public Show ensureSeatsInitialized(Long showId) {
         Show show = showRepository.findByIdAndIsDeletedFalse(showId)
                 .orElseThrow(() -> new ResourceNotFoundException("Show not found with ID: " + showId));
 
@@ -354,6 +359,10 @@ public class BookingService {
             s.setHeldByUserId(user.getId());
             s.setHoldExpiresAt(expiry);
             s.setBookingId(savedBooking.getId());
+            
+            // Broadcast real-time seat update via SSE
+            seatStreamService.broadcastSeatUpdate(show.getId(), 
+                new SeatUpdateEvent(show.getId(), s.getSeatCode(), "HELD", user.getId(), "HELD"));
         }
         showSeatRepository.saveAll(lockedSeats);
 
@@ -433,6 +442,10 @@ public class BookingService {
         for (ShowSeat s : seats) {
             if (booking.getId().equals(s.getBookingId())) {
                 releaseSeat(s);
+                
+                // Broadcast real-time seat update via SSE
+                seatStreamService.broadcastSeatUpdate(booking.getShow().getId(),
+                    new SeatUpdateEvent(booking.getShow().getId(), s.getSeatCode(), "AVAILABLE", null, "RELEASED"));
             }
         }
         showSeatRepository.saveAll(seats);
@@ -454,7 +467,13 @@ public class BookingService {
         Set<Long> bookingIds = new LinkedHashSet<>();
         for (ShowSeat s : expired) {
             if (s.getBookingId() != null) bookingIds.add(s.getBookingId());
+            Long showId = s.getShow().getId();
+            String seatCode = s.getSeatCode();
             releaseSeat(s);
+            
+            // Broadcast real-time seat update via SSE for expired holds
+            seatStreamService.broadcastSeatUpdate(showId,
+                new SeatUpdateEvent(showId, seatCode, "AVAILABLE", null, "EXPIRED"));
         }
         showSeatRepository.saveAll(expired);
 

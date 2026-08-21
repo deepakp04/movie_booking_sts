@@ -48,7 +48,10 @@ public class OwnerDTOs {
         MovieFormat format,
         Boolean hasCaptions,
         BigDecimal basePrice,
-        List<TierPriceRequest> tierPrices
+        List<TierPriceRequest> tierPrices,
+        // Optional: seat codes to reserve at scheduling time (e.g. house seats,
+        // complimentary blocks). These seats are marked BOOKED immediately.
+        List<String> reservedSeatCodes
     ) {}
 
     public record ShowResponse(

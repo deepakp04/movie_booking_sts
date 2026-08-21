@@ -109,7 +109,10 @@ public class AdminDTOs {
         BigDecimal basePrice,
         // One price per seat tier on the chosen screen. basePrice is retained as
         // the fallback for shows created before tier pricing existed.
-        List<TierPriceRequest> tierPrices
+        List<TierPriceRequest> tierPrices,
+        // Optional: seat codes to reserve at scheduling time (e.g. house seats,
+        // complimentary blocks). These seats are marked BOOKED immediately.
+        List<String> reservedSeatCodes
     ) {}
     
     public record ScreenResponse(
