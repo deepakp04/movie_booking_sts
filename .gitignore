@@ -1,26 +1,21 @@
 ```
 # Compiled and build artifacts
-*.pyc
-__pycache__/
 *.class
 *.o
 *.obj
-*.exe
-*.dll
-*.so
-*.a
 *.out
-dist/
-build/
 target/
 
 # Dependencies
+.m2/
+.gradle/
 node_modules/
 venv/
 .venv/
-.env
-.env.local
-.env.*
+__pycache__/
+*.egg-info/
+dist/
+build/
 
 # Logs and temp files
 *.log
@@ -28,13 +23,19 @@ venv/
 *.swp
 *.swo
 
+# Environment
+.env
+.env.local
+*.env.*
+
 # Editors
 .vscode/
 .idea/
-*.swp
-*.swo
+*.iml
+*.ipr
+*.iws
 
-# System files
+# OS
 .DS_Store
 Thumbs.db
 
@@ -44,34 +45,40 @@ htmlcov/
 .coverage
 
 # Python specific
-.mypy_cache/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.eggs
+*.dist-info/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage*
+.nox/
 .pytest_cache/
+.mypy_cache/
 
-# Java/Maven/Gradle
+# Java specific
+*.jar
+*.war
+*.ear
+hs_err_pid*
+
+# Maven
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+
+# Gradle
 .gradle/
-target/
-
-# Compressed files
-*.zip
-*.gz
-*.tar
-*.tgz
-*.bz2
-*.xz
-*.7z
-*.rar
-*.zst
-*.lz4
-*.lzh
-*.cab
-*.arj
-*.rpm
-*.deb
-*.Z
-*.lz
-*.lzo
-*.tar.gz
-*.tar.bz2
-*.tar.xz
-*.tar.zst
+**/build/
+!src/**/build/
 ```
