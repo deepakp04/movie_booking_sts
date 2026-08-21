@@ -244,13 +244,26 @@ document.getElementById('addShowForm')?.addEventListener('submit', async (e) => 
         showAlert('Enter a ticket price.', 'error');
         return;
     }
+    
+    // Parse reserved seat codes (comma-separated)
+    const payload = {
+        screenId, movieId, language, format, startTime, hasCaptions,
+        basePrice: isNaN(basePrice) ? null : basePrice,
+        tierPrices: collectTierPrices()
+    };
+    const reservedSeatsInput = document.getElementById('showReservedSeats').value.trim();
+    if (reservedSeatsInput) {
+        const reservedSeatCodes = reservedSeatsInput
+            .split(',')
+            .map(s => s.trim())
+            .filter(s => s.length > 0);
+        if (reservedSeatCodes.length > 0) {
+            payload.reservedSeatCodes = reservedSeatCodes;
+        }
+    }
 
     try {
-        await ownerApiCall('/shows', 'POST', {
-            screenId, movieId, language, format, startTime, hasCaptions,
-            basePrice: isNaN(basePrice) ? null : basePrice,
-            tierPrices: collectTierPrices()
-        });
+        await ownerApiCall('/shows', 'POST', payload);
         showAlert('Show scheduled successfully!', 'success');
         document.getElementById('addShowForm').reset();
         loadMyShows();
